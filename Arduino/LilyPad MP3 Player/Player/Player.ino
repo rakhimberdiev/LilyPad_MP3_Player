@@ -84,6 +84,7 @@
 #include <SdFatUtil.h>
 #include <SFEMP3Shield.h>
 #include <PinChangeInt.h>
+#include <EEPROM.h>
 
 // Set debugging to true to get serial messages:
 
@@ -102,16 +103,16 @@ boolean debugging = true;
 // In any mode, a quick press will start and stop playback.
 // A longer press will switch to the next mode.
 
-unsigned char rotary_mode = TRACK;
+uint8_t rotary_mode = TRACK;
 
 // Initial volume for the MP3 chip. 0 is the loudest, 255
 // is the lowest.
 
-unsigned char volume = 40;
+uint8_t volume = 40;
 
 // Start up *not* playing:
 
-boolean playing = false;
+boolean playing = true;
 
 // Set loop_all to true if you would like to automatically
 // start playing the next file after the current one ends:
@@ -154,6 +155,13 @@ boolean loop_all = true;
 #define PURPLE B010
 #define CYAN B001
 #define WHITE B000
+
+//EEPROM constants
+
+#define EEPROM_SCHEMA 0x01 //Used to do a quick check that EEPROM has our data, not something else
+#define EEPROM_SCHEMA_ADDRESS 0
+#define EEPROM_VOLUME_ADDRESS 1 //This is where we will store our volume setting
+
 
 // Global variables and flags for interrupt request functions:
 
@@ -273,11 +281,9 @@ void setup()
     Serial.print(F("current track: "));
     Serial.println(track);
   }
-  
-  // Set initial volume (same for both left and right channels)
-  
-  MP3player.setVolume(volume, volume);
-  
+
+  initVolumeControl();
+
   // Initial mode for the rotary encoder
 
   LEDmode(rotary_mode);
@@ -289,6 +295,8 @@ void setup()
   
   digitalWrite(SHDN_GPIO1, HIGH);
   delay(2);
+
+  if (playing) startPlaying(); 
 }
 
 
@@ -749,5 +757,64 @@ void errorBlink(int blinks, byte color)
     }
     delay(1500); // Longer pause between blink-groups
   }
+}
+
+boolean eepromValid()
+{
+  uint8_t eepromSchemaVersion;
+  eepromSchemaVersion = EEPROM.read(EEPROM_SCHEMA_ADDRESS);
+  return (eepromSchemaVersion == EEPROM_SCHEMA);
+}
+
+void initEeprom()
+{
+  EEPROM.write(EEPROM_SCHEMA_ADDRESS, EEPROM_SCHEMA);
+  if (debugging)
+    {
+      Serial.println(F("Initted EEPROM."));
+    }
+}
+
+void storeVolume()
+{
+  if (!eepromValid()) initEeprom();
+  EEPROM.write(EEPROM_VOLUME_ADDRESS, volume);
+  if (debugging)
+    {
+      Serial.print(F("Stored volume to EEPROM: "));
+      Serial.println(volume);
+    }
+}
+
+uint8_t volumeFromStore()
+{
+  if (eepromValid())
+  {
+    return EEPROM.read(EEPROM_VOLUME_ADDRESS);
+  }
+  else
+  {
+    return 0;
+  }
+}
+
+void initVolumeControl()
+{
+  if (eepromValid())
+  {
+    volume = volumeFromStore();
+    if (debugging)
+    {
+      Serial.print(F("Read volume from EEPROM: "));
+      Serial.println(volume);
+    }
+  }
+  setAndStoreVolume();
+}
+
+void setAndStoreVolume()
+{
+  MP3player.setVolume(volume, volume); // Set player volume (same for both left and right channels)
+  if (volume != volumeFromStore()) storeVolume();
 }
 
