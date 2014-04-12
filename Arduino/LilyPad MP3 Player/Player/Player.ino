@@ -226,7 +226,7 @@ void setup()
   pinMode(MISO, INPUT);
   pinMode(SCK, OUTPUT);
 
- // Turn off amplifier chip / turn on MP3 mode:
+  // Turn off amplifier chip / turn on MP3 mode:
 
   digitalWrite(SHDN_GPIO1, LOW);
   setLEDcolor(OFF);
@@ -244,15 +244,15 @@ void setup()
   }
   else 
     if (debugging) Serial.println(F("OK"));
- 
+
   //Initialize the MP3 chip:
-  
+
   if (debugging) Serial.println(F("Initializing MP3 chip... "));
 
   result = MP3player.begin();
 
   // Check result, 0 and 6 are OK:
-  
+
   if((result != 0) && (result != 6))
   {
     if (debugging)
@@ -264,7 +264,7 @@ void setup()
   }
   else
     if (debugging) Serial.println(F("OK"));
-  
+
   // Set up interrupts. We'll use the standard external interrupt
   // pin for the rotary, but we'll use the pin change interrupt
   // library for the button:
@@ -273,7 +273,7 @@ void setup()
   PCintPort::attachInterrupt(ROT_SW, &buttonIRQ, CHANGE);
 
   // Get initial track:
-  
+
   sd.chdir("/",true); // Index beginning of root directory
   getNextTrack();
   if (debugging)
@@ -287,12 +287,12 @@ void setup()
   // Initial mode for the rotary encoder
 
   LEDmode(rotary_mode);
-  
+
   // Uncomment to get a directory listing of the SD card:
   // sd.ls(LS_R | LS_DATE | LS_SIZE);
 
   // Turn on amplifier chip:
-  
+
   digitalWrite(SHDN_GPIO1, HIGH);
   delay(2);
 
@@ -317,17 +317,17 @@ void buttonIRQ()
   // press in ms. (Set this to false after handling the change.)
 
   // Raw information from PinChangeInt library:
-  
+
   // Serial.print("pin: ");
   // Serial.print(PCintPort::arduinoPin);
   // Serial.print(" state: ");
   // Serial.println(PCintPort::pinState);
-  
+
   static boolean button_state = false;
   static unsigned long start, end;
-    
+
   if ((PCintPort::pinState == HIGH) && (button_state == false)) 
-  // Button was up, but is currently being pressed down
+    // Button was up, but is currently being pressed down
   {
     // Discard button presses too close together (debounce)
     start = millis();
@@ -338,7 +338,7 @@ void buttonIRQ()
     }
   }
   else if ((PCintPort::pinState == LOW) && (button_state == true))
-  // Button was down, but has just been released
+    // Button was down, but has just been released
   {
     // Discard button releases too close together (debounce)
     end = millis();
@@ -361,7 +361,7 @@ void rotaryIRQ()
   // Process input from the rotary encoder.
   // The rotary "position" is held in rotary_counter, increasing
   // for CW rotation (changes by one per detent).
-  
+
   // If the position changes, rotary_change will be set true.
   // (You may manually set this to false after handling the change).
 
@@ -369,17 +369,17 @@ void rotaryIRQ()
   // transitions in either direction (low to high or high to low).
   // By saving the state of the A and B pins through two interrupts,
   // we'll determine the direction of rotation.
-  
+
   // Int rotary_counter will be updated with the new value, and boolean
   // rotary_change will be true if there was a value change.
-  
+
   // Based on concepts from Oleg at circuits@home (http://www.circuitsathome.com/mcu/rotary-encoder-interrupt-service-routine-for-avr-micros)
   // Unlike Oleg's original code, this code uses only one interrupt and
   // has only two transition states; it has less resolution but needs only
   // one interrupt, is very smooth, and handles switchbounce well.
-  
+
   static unsigned char rotary_state = 0; // Current and previous encoder states
-  
+
   rotary_state <<= 2;  // Remember previous state
   rotary_state |= (digitalRead(ROT_A) | (digitalRead(ROT_B) << 1));  // Mask in current state
   rotary_state &= 0x0F; // Zero upper nybble
@@ -406,52 +406,52 @@ void loop()
   // "Static" variables are initalized once the first time
   // the loop runs, but they keep their values through
   // successive loops.
-  
+
   static boolean button_down = false;
   static unsigned long int button_down_start, button_down_time;
-  
+
   // rotaryIRQ() sets the flag rotary_counter to true
   // if the knob position has changed. We can use this flag
   // to do something in the main loop() each time there's
   // a change. We'll clear this flag when we're done, which
   // lets us run this if() once for each change.
-  
+
   if (rotary_change)
   {
     switch (rotary_mode)
     {
-      case TRACK:
-      
-        // Before switching to a new audio file, we MUST
-        // stop playing before accessing the SD directory:
-       
-        if (playing)
-          stopPlaying();
-      
-        // Get the next file:
-      
-        if (rotary_direction)
-          getNextTrack();
-        else
-          getPrevTrack();
-      
-        // If we were previously playing, let's start again!
-      
-        if (playing) startPlaying(); 
+    case TRACK:
 
-        if (debugging)
-        {
-          Serial.print(F("current track "));
-          Serial.println(track);
-        }
-        break;
-      
-      case VOLUME:
+      // Before switching to a new audio file, we MUST
+      // stop playing before accessing the SD directory:
 
-        // Change the volume. Easy.
-        
-        changeVolume(rotary_direction);
-        break;
+      if (playing)
+        stopPlaying();
+
+      // Get the next file:
+
+      if (rotary_direction)
+        getNextTrack();
+      else
+        getPrevTrack();
+
+      // If we were previously playing, let's start again!
+
+      if (playing) startPlaying(); 
+
+      if (debugging)
+      {
+        Serial.print(F("current track "));
+        Serial.println(track);
+      }
+      break;
+
+    case VOLUME:
+
+      // Change the volume. Easy.
+
+      changeVolume(rotary_direction);
+      break;
     }
     rotary_change = false; // Clear flag
   }
@@ -483,9 +483,9 @@ void loop()
       Serial.print(F("button release, downtime: "));
       Serial.println(button_downtime,DEC);
     }
-    
+
     // For quick button presses, start or stop playback:
-    
+
     if (button_downtime < 1000)
     {
       playing = !playing;
@@ -527,27 +527,27 @@ void loop()
         Serial.print(F("mode "));
         Serial.println(rotary_mode);
       }
-      
+
       // Reset counter so holding the button will continue
       // switching through modes:
-      
+
       button_down_start = millis();
     }
   }
-  
+
   // Handle "last track ended" situations
   // (should we play the next track?)
-  
+
   // Are we in "playing" mode, and has the
   // current file ended?
-  
+
   if (playing && !MP3player.isPlaying())
   {
     getNextTrack(); // Set up for next track
-    
-    // If loop_all is true, start the next track
-    
-    if (loop_all)
+
+      // If loop_all is true, start the next track
+
+      if (loop_all)
     {
       startPlaying();
     }
@@ -562,14 +562,14 @@ void changeVolume(boolean direction)
   // Increment or decrement the volume.
   // This is handled internally in the VS1053 MP3 chip.
   // Lower numbers are louder (0 is the loudest).
-  
+
   if (volume < 255 && direction == false)
     volume += 2;
-  
+
   if (volume > 0 && direction == true)
     volume -= 2;
 
-  MP3player.setVolume(volume, volume);
+  setAndStoreVolume();
 
   if (debugging)
   {
@@ -583,7 +583,7 @@ void getNextTrack()
 {
   // Get the next playable track (check extension to be
   // sure it's an audio file)
-  
+
   do
     getNextFile();
   while(isPlayable() != true);
@@ -609,7 +609,7 @@ void getNextFile()
 
   // If we're at the end of the directory,
   // loop around to the beginning:
-  
+
   if (!result)
   {
     sd.chdir("/",true);
@@ -624,7 +624,7 @@ void getNextFile()
 void getPrevFile()
 {
   // Get the previous file (which may be playable or not)
-  
+
   char test[13], prev[13];
 
   // Getting the previous file is tricky, since you can
@@ -636,7 +636,7 @@ void getPrevFile()
   // saving the last file we looked at, so when we get
   // back to the current file, we'll return the previous
   // one.
-  
+
   // Yeah, it's a pain.
 
   strcpy(test,track);
@@ -647,7 +647,7 @@ void getPrevFile()
     getNextTrack();
   }
   while(strcasecmp(track,test) != 0);
-  
+
   strcpy(track,prev);
 }
 
@@ -655,7 +655,7 @@ void getPrevFile()
 void startPlaying()
 {
   int result;
-  
+
   if (debugging)
   {
     Serial.print(F("playing "));
@@ -687,11 +687,11 @@ boolean isPlayable()
   // unplayable data.
 
   char *extension;
-  
+
   extension = strrchr(track,'.');
   extension++;
   if (
-    (strcasecmp(extension,"MP3") == 0) ||
+  (strcasecmp(extension,"MP3") == 0) ||
     (strcasecmp(extension,"WAV") == 0) ||
     (strcasecmp(extension,"MID") == 0) ||
     (strcasecmp(extension,"MP4") == 0) ||
@@ -699,7 +699,7 @@ boolean isPlayable()
     (strcasecmp(extension,"FLA") == 0) ||
     (strcasecmp(extension,"OGG") == 0) ||
     (strcasecmp(extension,"AAC") == 0)
-  )
+    )
     return true;
   else
     return false;
@@ -713,14 +713,14 @@ void LEDmode(unsigned char mode)
 
   switch (mode)
   {
-    case TRACK:
-      setLEDcolor(RED);
-      break;
-    case VOLUME:
-      setLEDcolor(GREEN);
-      break;
-    default:
-      setLEDcolor(OFF);
+  case TRACK:
+    setLEDcolor(RED);
+    break;
+  case VOLUME:
+    setLEDcolor(GREEN);
+    break;
+  default:
+    setLEDcolor(OFF);
   }
 }
 
