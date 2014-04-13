@@ -37,23 +37,23 @@
 // or add additional extensions to the isPlayable() function below.
 // See the VS1053 datasheet for the audio file types it can play.
 
-// The player has two modes, TRACK and VOLUME. In TRACK mode, turning
-// the knob will move to the next or previous track. In VOLUME mode,
-// turning the knob will increase or decrease the volume.
+// The control logic is a bit different from Sparkfun's original.
+//
+// The player starts playing immediately upon boot (what's the point
+// in a programmable payer if you have to control in manually, right?)
+//
+// To start and stop play back, press and release the knob (as in 
+// the original, sort of, but we don't care about press duration).
+//
+// Just turning the knob switches tracks.
+//
+// To adjust volume, press and turn the knob.
+//
+// Light scheme: blue for playing, red for stopped, yellow when the
+// knob is down, but no further decision is yet made (by releasing or
+// turning, which would indicate start/stop or volume control,
+// respectively). Green for volume adjustment in progress.
 
-// You can tell what mode you're in by the color of the RGB LED in the
-// knob of the rotary encoder. TRACK mode is red, VOLUME mode is green.
-
-// To switch between modes, hold down the button on the rotary encoder
-// until the color changes (more than one second).
-
-// To start and stop playback, press the button on the rotary encoder
-// *quickly* (less than one second). When the player is playing, it
-// will stubbornly keep playing; starting new tracks when the previous
-// one ends, and switching to new tracks if you turn the knob in TRACK
-// mode. When the player is stopped, it will not start playing until
-// you press the button *quickly*, but it will silently change tracks
-// or adjust the volume if you turn the knob.
 
 // SERIAL DEBUGGING
 
@@ -93,26 +93,15 @@ boolean debugging = true;
 // Possible modes (first and last are there to make
 // rotating through them easier):
 
-#define FIRST_MODE 0
-#define TRACK 0
-#define VOLUME 1
-#define LAST_MODE 1
+#define UNDEFINED_MODE 0
+#define KNOB_UP_MODE 1
+#define KNOB_DOWN_MODE 2
+#define VOLUME_CONTROL_MODE 3
 
-// Initial mode for the rotary encoder. TRACK lets you
-// select audio tracks, VOLUME lets you change the volume.
-// In any mode, a quick press will start and stop playback.
-// A longer press will switch to the next mode.
-
-uint8_t rotary_mode = TRACK;
-
-// Initial volume for the MP3 chip. 0 is the loudest, 255
+// Default initial volume for the MP3 chip. 0 is the loudest, 255
 // is the lowest.
 
 uint8_t volume = 40;
-
-// Start up *not* playing:
-
-boolean playing = true;
 
 // Set loop_all to true if you would like to automatically
 // start playing the next file after the current one ends:
@@ -235,7 +224,7 @@ void setup()
 
   if (debugging) Serial.println(F("Initializing SD card... "));
 
-  result = sd.begin(SD_SEL, SPI_HALF_SPEED);
+  result = sd.begin(SD_SEL, SPI_FULL_SPEED);
 
   if (result != 1)
   {
@@ -284,19 +273,13 @@ void setup()
 
   initVolumeControl();
 
-  // Initial mode for the rotary encoder
-
-  LEDmode(rotary_mode);
-
   // Uncomment to get a directory listing of the SD card:
-  // sd.ls(LS_R | LS_DATE | LS_SIZE);
+  sd.ls(LS_R | LS_DATE | LS_SIZE);
 
   // Turn on amplifier chip:
 
   digitalWrite(SHDN_GPIO1, HIGH);
   delay(2);
-
-  if (playing) startPlaying(); 
 }
 
 
@@ -407,8 +390,10 @@ void loop()
   // the loop runs, but they keep their values through
   // successive loops.
 
-  static boolean button_down = false;
-  static unsigned long int button_down_start, button_down_time;
+  static uint8_t current_mode = UNDEFINED_MODE;
+  static boolean playing = true; //play on startup
+
+  if (current_mode == UNDEFINED_MODE) current_mode = setMode(KNOB_UP_MODE, playing);
 
   // rotaryIRQ() sets the flag rotary_counter to true
   // if the knob position has changed. We can use this flag
@@ -418,38 +403,21 @@ void loop()
 
   if (rotary_change)
   {
-    switch (rotary_mode)
+    if (debugging)
     {
-    case TRACK:
-
-      // Before switching to a new audio file, we MUST
-      // stop playing before accessing the SD directory:
-
-      if (playing)
-        stopPlaying();
-
-      // Get the next file:
-
-      if (rotary_direction)
-        getNextTrack();
-      else
-        getPrevTrack();
-
-      // If we were previously playing, let's start again!
-
-      if (playing) startPlaying(); 
-
-      if (debugging)
-      {
-        Serial.print(F("current track "));
-        Serial.println(track);
-      }
+      Serial.print(F("Rotary changed, direction "));
+      Serial.println(rotary_direction);
+    }
+    switch (current_mode)
+    {
+    case KNOB_UP_MODE:
+      switchTrack(rotary_direction, playing);
       break;
-
-    case VOLUME:
-
-      // Change the volume. Easy.
-
+    case KNOB_DOWN_MODE:
+      current_mode = setMode(VOLUME_CONTROL_MODE, playing);
+      changeVolume(rotary_direction);
+      break;
+    case VOLUME_CONTROL_MODE:
       changeVolume(rotary_direction);
       break;
     }
@@ -462,77 +430,44 @@ void loop()
 
   if (button_pressed)
   {
-    if (debugging) Serial.println(F("button press"));
+    if (debugging) Serial.println(F("Button pressed."));
 
+    switch (current_mode)
+    {
+    case KNOB_UP_MODE:
+      current_mode = setMode(KNOB_DOWN_MODE, playing);
+      break;
+    default:
+      //This should not happen
+      if (debugging) Serial.println(F("Unexpected: button pressed in while already down!"));
+      break;
+    }
     button_pressed = false; // Clear flag
 
-    // We'll set another flag saying the button is now down
-    // this is so we can keep track of how long the button
-    // is being held down. (We can't do this in interrupts,
-    // because the button state doesn't change while it's
-    // being held down):
-
-    button_down = true;
-    button_down_start = millis();
   }
 
   if (button_released)
   {
     if (debugging)
     {
-      Serial.print(F("button release, downtime: "));
-      Serial.println(button_downtime,DEC);
+      Serial.println(F("Button released."));
     }
 
-    // For quick button presses, start or stop playback:
-
-    if (button_downtime < 1000)
+    switch (current_mode)
     {
+    case KNOB_DOWN_MODE:
       playing = !playing;
-      if (playing)
-        startPlaying();
-      else
-        stopPlaying();
+      current_mode = setMode(KNOB_UP_MODE, playing);
+      break;
+    case VOLUME_CONTROL_MODE:
+      current_mode = setMode(KNOB_UP_MODE, playing);
+      break;
+    default:
+      //This should not happen
+      if (debugging) Serial.println(F("Unexpected: button released in while already up!"));
+      break;
     }
-
     button_released = false; // Clear flags
-    button_down = false;
-  }
-
-  // Now we can keep track of how long the button is being
-  // held down, and perform actions based on that time.
-  // This lets us implement the "hold down for one second
-  // to change mode" action:
-
-  if (button_down)
-  {
-    button_down_time = millis() - button_down_start;
-
-    if (button_down_time > 1000)
-    {
-      // Switch to next mode
-
-      rotary_mode++;
-
-      // Loop around if necessary
-
-      if (rotary_mode > LAST_MODE) rotary_mode = FIRST_MODE;
-
-      // Set LED to mode color
-
-      LEDmode(rotary_mode);
-
-      if (debugging)
-      {
-        Serial.print(F("mode "));
-        Serial.println(rotary_mode);
-      }
-
-      // Reset counter so holding the button will continue
-      // switching through modes:
-
-      button_down_start = millis();
-    }
   }
 
   // Handle "last track ended" situations
@@ -543,30 +478,88 @@ void loop()
 
   if (playing && !MP3player.isPlaying())
   {
-    getNextTrack(); // Set up for next track
-
-      // If loop_all is true, start the next track
-
-      if (loop_all)
+    if (debugging) Serial.println(F("Done playing track"));
+    if (loop_all)
     {
-      startPlaying();
+      if (debugging) Serial.println(F("Switching to next track"));
+      switchTrack(true, true);
     }
     else
       playing = false;
   }
 }
 
+uint8_t setMode(uint8_t targetMode, boolean playing)
+{
+  Serial.print(F("Setting mode to: "));
+  Serial.println(targetMode);
+  Serial.print(F("Playing: "));
+  Serial.println(playing);
+
+  switch (targetMode)
+  {
+  case KNOB_UP_MODE:
+    if (playing)
+    {
+      setLEDcolor(BLUE);
+      if (!MP3player.isPlaying()) startPlaying();
+    }
+    else
+    {
+      setLEDcolor(RED);
+      if (MP3player.isPlaying()) stopPlaying();
+    }
+    break;
+  case KNOB_DOWN_MODE:
+    setLEDcolor(YELLOW);
+    break;
+  case VOLUME_CONTROL_MODE:
+    setLEDcolor(GREEN);
+    break;
+  default:
+    setLEDcolor(OFF);
+  }
+  return targetMode;
+}
+
+void switchTrack(boolean direction, boolean playing)
+{
+
+  // Before switching to a new audio file, we MUST
+  // stop playing before accessing the SD directory:
+
+  if (playing)
+    stopPlaying();
+
+  // Get the next file:
+
+  if (direction)
+    getNextTrack();
+  else
+    getPrevTrack();
+
+  // If we were previously playing, let's start again!
+
+  if (playing) startPlaying(); 
+
+  if (debugging)
+  {
+    Serial.print(F("current track "));
+    Serial.println(track);
+  }
+}
 
 void changeVolume(boolean direction)
 {
   // Increment or decrement the volume.
   // This is handled internally in the VS1053 MP3 chip.
   // Lower numbers are louder (0 is the loudest).
+  // Useful volume levels are between ~150 (lowest) and 0 (loudest), so stay between these.
 
-  if (volume < 255 && direction == false)
+  if (volume < 149 && direction == false)
     volume += 2;
 
-  if (volume > 0 && direction == true)
+  if (volume > 1 && direction == true)
     volume -= 2;
 
   setAndStoreVolume();
@@ -706,25 +699,6 @@ boolean isPlayable()
 }
 
 
-void LEDmode(unsigned char mode)
-{
-  // Change the RGB LED to a specific color for each mode
-  // (See #defines at start of sketch for colors.)
-
-  switch (mode)
-  {
-  case TRACK:
-    setLEDcolor(RED);
-    break;
-  case VOLUME:
-    setLEDcolor(GREEN);
-    break;
-  default:
-    setLEDcolor(OFF);
-  }
-}
-
-
 void setLEDcolor(unsigned char color)
 {
   // Set the RGB LED in the (optional) rotary encoder
@@ -770,9 +744,9 @@ void initEeprom()
 {
   EEPROM.write(EEPROM_SCHEMA_ADDRESS, EEPROM_SCHEMA);
   if (debugging)
-    {
-      Serial.println(F("Initted EEPROM."));
-    }
+  {
+    Serial.println(F("Initted EEPROM."));
+  }
 }
 
 void storeVolume()
@@ -780,10 +754,10 @@ void storeVolume()
   if (!eepromValid()) initEeprom();
   EEPROM.write(EEPROM_VOLUME_ADDRESS, volume);
   if (debugging)
-    {
-      Serial.print(F("Stored volume to EEPROM: "));
-      Serial.println(volume);
-    }
+  {
+    Serial.print(F("Stored volume to EEPROM: "));
+    Serial.println(volume);
+  }
 }
 
 uint8_t volumeFromStore()
@@ -817,4 +791,12 @@ void setAndStoreVolume()
   MP3player.setVolume(volume, volume); // Set player volume (same for both left and right channels)
   if (volume != volumeFromStore()) storeVolume();
 }
+
+
+
+
+
+
+
+
 
