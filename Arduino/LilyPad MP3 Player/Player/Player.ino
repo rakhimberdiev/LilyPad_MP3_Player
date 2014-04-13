@@ -260,6 +260,7 @@ void setup()
 
   attachInterrupt(1,rotaryIRQ,CHANGE);
   PCintPort::attachInterrupt(ROT_SW, &buttonIRQ, CHANGE);
+  rotary_change = false; //for some wierd reason, the global initiaization fails after a powerup/
 
   // Get initial track:
 
