@@ -237,7 +237,7 @@ void setup()
   //Initialize the MP3 chip:
 
   if (debugging) Serial.println(F("Initializing MP3 chip... "));
-
+  
   result = MP3player.begin();
 
   // Check result, 0 and 6 are OK:
@@ -275,65 +275,66 @@ void setup()
   initVolumeControl();
 
   // Uncomment to get a directory listing of the SD card:
-  sd.ls(LS_R | LS_DATE | LS_SIZE);
+  //sd.ls(LS_R | LS_DATE | LS_SIZE);
 
   // Turn on amplifier chip:
+    
+    digitalWrite(SHDN_GPIO1, HIGH);
+    delay(2);
+  
+  }
 
-  digitalWrite(SHDN_GPIO1, HIGH);
-  delay(2);
-}
 
-
-void buttonIRQ()
-{
-  // Button press interrupt request function (IRQ).
-  // This function is called *automatically* when the button
-  // changes state.
-
-  // Process rotary encoder button presses and releases, including
-  // debouncing (extra "presses" from noisy switch contacts).
-
-  // If button is pressed, the button_pressed flag is set to true.
-  // (Manually set this to false after handling the change.)
-
-  // If button is released, the button_released flag is set to true,
-  // and button_downtime will contain the duration of the button
-  // press in ms. (Set this to false after handling the change.)
-
-  // Raw information from PinChangeInt library:
-
-  // Serial.print("pin: ");
-  // Serial.print(PCintPort::arduinoPin);
-  // Serial.print(" state: ");
-  // Serial.println(PCintPort::pinState);
-
-  static boolean button_state = false;
-  static unsigned long start, end;
-
-  if ((PCintPort::pinState == HIGH) && (button_state == false)) 
-    // Button was up, but is currently being pressed down
+  void buttonIRQ()
   {
-    // Discard button presses too close together (debounce)
-    start = millis();
-    if (start > (end + 10)) // 10ms debounce timer
+    // Button press interrupt request function (IRQ).
+    // This function is called *automatically* when the button
+    // changes state.
+
+    // Process rotary encoder button presses and releases, including
+    // debouncing (extra "presses" from noisy switch contacts).
+
+    // If button is pressed, the button_pressed flag is set to true.
+    // (Manually set this to false after handling the change.)
+
+    // If button is released, the button_released flag is set to true,
+    // and button_downtime will contain the duration of the button
+    // press in ms. (Set this to false after handling the change.)
+
+    // Raw information from PinChangeInt library:
+
+    // Serial.print("pin: ");
+    // Serial.print(PCintPort::arduinoPin);
+    // Serial.print(" state: ");
+    // Serial.println(PCintPort::pinState);
+
+    static boolean button_state = false;
+    static unsigned long start, end;
+
+    if ((PCintPort::pinState == HIGH) && (button_state == false)) 
+      // Button was up, but is currently being pressed down
     {
-      button_state = true;
-      button_pressed = true;
+      // Discard button presses too close together (debounce)
+      start = millis();
+      if (start > (end + 10)) // 10ms debounce timer
+      {
+        button_state = true;
+        button_pressed = true;
+      }
+    }
+    else if ((PCintPort::pinState == LOW) && (button_state == true))
+      // Button was down, but has just been released
+    {
+      // Discard button releases too close together (debounce)
+      end = millis();
+      if (end > (start + 10)) // 10ms debounce timer
+      {
+        button_state = false;
+        button_released = true;
+        button_downtime = end - start;
+      }
     }
   }
-  else if ((PCintPort::pinState == LOW) && (button_state == true))
-    // Button was down, but has just been released
-  {
-    // Discard button releases too close together (debounce)
-    end = millis();
-    if (end > (start + 10)) // 10ms debounce timer
-    {
-      button_state = false;
-      button_released = true;
-      button_downtime = end - start;
-    }
-  }
-}
 
 
 void rotaryIRQ()
@@ -648,6 +649,8 @@ void getPrevFile()
 
 void startPlaying()
 {
+  setLEDcolor(CYAN);
+
   int result;
 
   if (debugging)
@@ -657,7 +660,16 @@ void startPlaying()
     Serial.print(F("..."));
   }  
 
+  mute(); //this is a hack to suppress the click at the start of playback
+
   result = MP3player.playMP3(track);
+  if (result == 0)
+  {
+    delay(50);
+    unmute();
+    setLEDcolor(BLUE);
+  }
+
 
   if (debugging)
   {
@@ -670,6 +682,7 @@ void startPlaying()
 void stopPlaying()
 {
   if (debugging) Serial.println(F("stopping playback"));
+  mute();
   MP3player.stopTrack();
 }
 
@@ -793,8 +806,15 @@ void setAndStoreVolume()
   if (volume != volumeFromStore()) storeVolume();
 }
 
+void mute()
+{
+  MP3player.setVolume(0xFEFE,0xFEFE);
+}
 
-
+void unmute()
+{
+  MP3player.setVolume(volume,volume);
+}
 
 
 
