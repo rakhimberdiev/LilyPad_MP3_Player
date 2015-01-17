@@ -88,7 +88,7 @@
 
 // Set debugging to true to get serial messages:
 
-boolean debugging = true;
+boolean debugging = false;
 
 // Possible modes (first and last are there to make
 // rotating through them easier):
@@ -215,10 +215,12 @@ void setup()
   pinMode(MISO, INPUT);
   pinMode(SCK, OUTPUT);
 
-  // Turn off amplifier chip / turn on MP3 mode:
 
+  setLEDcolor(YELLOW);
+  
+  // Turn off amplifier chip / turn on MP3 mode:
+  
   digitalWrite(SHDN_GPIO1, LOW);
-  setLEDcolor(OFF);
 
   // Initialize the SD card:
 
@@ -600,7 +602,7 @@ void getNextFile()
 {
   // Get the next file (which may be playable or not)
 
-  int result = (file.openNext(sd.vwd(), O_READ));
+    int result = (file.openNext(sd.vwd(), O_READ));
 
   // If we're at the end of the directory,
   // loop around to the beginning:
