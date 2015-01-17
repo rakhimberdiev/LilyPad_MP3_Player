@@ -88,7 +88,10 @@
 
 // Set debugging to true to get serial messages:
 
-boolean debugging = false;
+boolean debugging = true;
+
+//Defining this will randomize tracks
+#define RANDOMIZE true
 
 // Possible modes (first and last are there to make
 // rotating through them easier):
@@ -160,7 +163,7 @@ volatile boolean rotary_direction; // Direction rotary encoder was turned (true 
 volatile boolean button_pressed = false; // Will turn true if the button has been pushed
 volatile boolean button_released = false; // Will turn true if the button has been released (sets button_downtime)
 volatile unsigned long button_downtime = 0L; // ms the button was pushed before release
-char track[13];
+char track[13], prev[13];
 
 // Library objects:
 
@@ -274,6 +277,8 @@ void setup()
     Serial.println(track);
   }
 
+  if (RANDOMIZE) randomSeed(analogRead(0));
+  
   initVolumeControl();
 
   // Uncomment to get a directory listing of the SD card:
@@ -580,10 +585,23 @@ void getNextTrack()
 {
   // Get the next playable track (check extension to be
   // sure it's an audio file)
-
-  do
-    getNextFile();
-  while(isPlayable() != true);
+  
+  long step = 1;
+  int i;
+  
+  strcpy(prev,track);
+  
+  if (RANDOMIZE) 
+  {
+    step = int(random(1, 30));
+  }
+  
+  for (i=0; i < step; i++)
+  {
+    do
+      getNextFile();
+    while(isPlayable() != true);
+  }
 }
 
 
@@ -610,7 +628,7 @@ void getNextFile()
   if (!result)
   {
     sd.chdir("/",true);
-    getNextTrack();
+    getNextFile();
     return;
   }
   file.getFilename(track);  
@@ -622,30 +640,18 @@ void getPrevFile()
 {
   // Get the previous file (which may be playable or not)
 
-  char test[13], prev[13];
-
   // Getting the previous file is tricky, since you can
   // only go forward when reading directories.
-
-  // To handle this, we'll save the name of the current
-  // file, then keep reading all the files until we loop
-  // back around to where we are. While doing this we're
-  // saving the last file we looked at, so when we get
-  // back to the current file, we'll return the previous
-  // one.
-
-  // Yeah, it's a pain.
-
-  strcpy(test,track);
+  //
+  // To handle this, we save the previous track name in getNextTrack,
+  // and loop until we find it here.
 
   do
   {
-    strcpy(prev,track);
-    getNextTrack();
+    getNextFile();
   }
-  while(strcasecmp(track,test) != 0);
+  while(strcasecmp(track,prev) != 0);
 
-  strcpy(track,prev);
 }
 
 
