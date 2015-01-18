@@ -92,6 +92,13 @@ boolean debugging = true;
 
 //Defining this will randomize tracks
 #define RANDOMIZE true
+#define MAX_TRACKS 100
+
+int tracks_found, current_track;
+uint16_t track_files[MAX_TRACKS];
+char track[13];
+
+
 
 // Possible modes (first and last are there to make
 // rotating through them easier):
@@ -163,7 +170,7 @@ volatile boolean rotary_direction; // Direction rotary encoder was turned (true 
 volatile boolean button_pressed = false; // Will turn true if the button has been pushed
 volatile boolean button_released = false; // Will turn true if the button has been released (sets button_downtime)
 volatile unsigned long button_downtime = 0L; // ms the button was pushed before release
-char track[13], prev[13];
+
 
 // Library objects:
 
@@ -179,7 +186,7 @@ void setup()
   if (debugging)
   {
     Serial.begin(9600);
-    Serial.println(F("Lilypad MP3 Player"));
+    Serial.println(F("Lilypad MP3 Player - adapted by Bulat Rakhimberdiev, 2014-2015."));
 
     // ('F' places constant strings in program flash to save RAM)
 
@@ -187,6 +194,9 @@ void setup()
     Serial.println(FreeRam(), DEC);
   }
 
+  randomSeed(analogRead(1));
+  
+  
   // Set up I/O pins:
 
   pinMode(TRIG1, INPUT);
@@ -220,9 +230,9 @@ void setup()
 
 
   setLEDcolor(YELLOW);
-  
+
   // Turn off amplifier chip / turn on MP3 mode:
-  
+
   digitalWrite(SHDN_GPIO1, LOW);
 
   // Initialize the SD card:
@@ -233,16 +243,30 @@ void setup()
 
   if (result != 1)
   {
-    if (debugging) Serial.println(F("error, halting"));
+    if (debugging) Serial.println(F("Failed to read SD card. Halting"));
     errorBlink(1,RED);
   }
   else 
     if (debugging) Serial.println(F("OK"));
 
+  // Build the play list
+  scanCard();
+  if (tracks_found == 0)
+  {
+    if (debugging) Serial.println(F("No playable files (MP3, WAV, MID, MP4, WMA, FLA, OGG, AAC) in root folder. Halting."));
+    errorBlink(1,YELLOW);
+  }
+  if (RANDOMIZE) randomizeTracks();
+  
+  
+  // Get initial track:
+  startOver();
+  goToTrack(0);
+
   //Initialize the MP3 chip:
 
   if (debugging) Serial.println(F("Initializing MP3 chip... "));
-  
+
   result = MP3player.begin();
 
   // Check result, 0 and 6 are OK:
@@ -267,81 +291,69 @@ void setup()
   PCintPort::attachInterrupt(ROT_SW, &buttonIRQ, CHANGE);
   rotary_change = false; //for some wierd reason, the global initiaization fails after a powerup/
 
-  // Get initial track:
-
-  sd.chdir("/",true); // Index beginning of root directory
-  getNextTrack();
-  if (debugging)
-  {
-    Serial.print(F("current track: "));
-    Serial.println(track);
-  }
-
-  if (RANDOMIZE) randomSeed(analogRead(0));
-  
   initVolumeControl();
 
   // Uncomment to get a directory listing of the SD card:
   //sd.ls(LS_R | LS_DATE | LS_SIZE);
 
   // Turn on amplifier chip:
-    
-    digitalWrite(SHDN_GPIO1, HIGH);
-    delay(2);
-  
-  }
+
+  digitalWrite(SHDN_GPIO1, HIGH);
+  delay(2);
+
+}
 
 
-  void buttonIRQ()
+void buttonIRQ()
+{
+  // Button press interrupt request function (IRQ).
+  // This function is called *automatically* when the button
+  // changes state.
+
+  // Process rotary encoder button presses and releases, including
+  // debouncing (extra "presses" from noisy switch contacts).
+
+  // If button is pressed, the button_pressed flag is set to true.
+  // (Manually set this to false after handling the change.)
+
+  // If button is released, the button_released flag is set to true,
+  // and button_downtime will contain the duration of the button
+  // press in ms. (Set this to false after handling the change.)
+
+  // Raw information from PinChangeInt library:
+
+  // Serial.print("pin: ");
+  // Serial.print(PCintPort::arduinoPin);
+  // Serial.print(" state: ");
+  // Serial.println(PCintPort::pinState);
+
+  static boolean button_state = false;
+  static unsigned long start, end;
+
+  if ((PCintPort::pinState == HIGH) && (button_state == false)) 
+    // Button was up, but is currently being pressed down
   {
-    // Button press interrupt request function (IRQ).
-    // This function is called *automatically* when the button
-    // changes state.
-
-    // Process rotary encoder button presses and releases, including
-    // debouncing (extra "presses" from noisy switch contacts).
-
-    // If button is pressed, the button_pressed flag is set to true.
-    // (Manually set this to false after handling the change.)
-
-    // If button is released, the button_released flag is set to true,
-    // and button_downtime will contain the duration of the button
-    // press in ms. (Set this to false after handling the change.)
-
-    // Raw information from PinChangeInt library:
-
-    // Serial.print("pin: ");
-    // Serial.print(PCintPort::arduinoPin);
-    // Serial.print(" state: ");
-    // Serial.println(PCintPort::pinState);
-
-    static boolean button_state = false;
-    static unsigned long start, end;
-
-    if ((PCintPort::pinState == HIGH) && (button_state == false)) 
-      // Button was up, but is currently being pressed down
+    // Discard button presses too close together (debounce)
+    start = millis();
+    if (start > (end + 10)) // 10ms debounce timer
     {
-      // Discard button presses too close together (debounce)
-      start = millis();
-      if (start > (end + 10)) // 10ms debounce timer
-      {
-        button_state = true;
-        button_pressed = true;
-      }
-    }
-    else if ((PCintPort::pinState == LOW) && (button_state == true))
-      // Button was down, but has just been released
-    {
-      // Discard button releases too close together (debounce)
-      end = millis();
-      if (end > (start + 10)) // 10ms debounce timer
-      {
-        button_state = false;
-        button_released = true;
-        button_downtime = end - start;
-      }
+      button_state = true;
+      button_pressed = true;
     }
   }
+  else if ((PCintPort::pinState == LOW) && (button_state == true))
+    // Button was down, but has just been released
+  {
+    // Discard button releases too close together (debounce)
+    end = millis();
+    if (end > (start + 10)) // 10ms debounce timer
+    {
+      button_state = false;
+      button_released = true;
+      button_downtime = end - start;
+    }
+  }
+}
 
 
 void rotaryIRQ()
@@ -510,13 +522,13 @@ uint8_t setMode(uint8_t targetMode, boolean playing)
   case KNOB_UP_MODE:
     if (playing)
     {
-      setLEDcolor(BLUE);
       if (!MP3player.isPlaying()) startPlaying();
+      setLEDcolor(BLUE);
     }
     else
     {
-      setLEDcolor(RED);
       if (MP3player.isPlaying()) stopPlaying();
+      setLEDcolor(RED);
     }
     break;
   case KNOB_DOWN_MODE:
@@ -580,80 +592,122 @@ void changeVolume(boolean direction)
   }
 }
 
+int add_loopover(int sum, int low, int high)
+{
+  int range = high - low + 1;
+  if (range < 1) return -1; //invalid thresholds
+  if (sum > high) return low + (sum % range);
+  if (sum < low) return high - ((low - sum) % range) + 1;
+  return sum;
+}
 
 void getNextTrack()
 {
-  // Get the next playable track (check extension to be
-  // sure it's an audio file)
-  
-  long step = 1;
-  int i;
-  
-  strcpy(prev,track);
-  
-  if (RANDOMIZE) 
-  {
-    step = int(random(1, 30));
-  }
-  
-  for (i=0; i < step; i++)
-  {
-    do
-      getNextFile();
-    while(isPlayable() != true);
-  }
+  goToTrack(add_loopover(current_track + 1, 0, tracks_found - 1));
 }
 
 
 void getPrevTrack()
 {
-  // Get the previous playable track (check extension to be
-  // sure it's an audio file)
-
-  do
-    getPrevFile();
-  while(isPlayable() != true);
+  goToTrack(add_loopover(current_track - 1, 0, tracks_found - 1));
 }
 
-
-void getNextFile()
+void scanCard()
 {
-  // Get the next file (which may be playable or not)
-
-    int result = (file.openNext(sd.vwd(), O_READ));
-
-  // If we're at the end of the directory,
-  // loop around to the beginning:
-
-  if (!result)
+  if (debugging) Serial.println(F("Scanning directory..."));
+  sd.chdir("/",true); // Index beginning of root directory
+  int file_index = 0;
+  tracks_found = 0;
+  for (int i = 0; i < MAX_TRACKS; i++)
   {
-    sd.chdir("/",true);
-    getNextFile();
-    return;
+    if (file.openNext(sd.vwd(), O_READ))
+    {
+
+      file.getFilename(track);
+      if (isPlayable())
+      {
+        track_files[i] = file_index;
+        tracks_found++;
+        if (debugging)
+        {
+          Serial.print(F("Adding file "));
+          Serial.print(track);
+          Serial.print(F(" (id "));
+          Serial.print(file_index);
+          Serial.print(F(") as track "));
+          Serial.println(i);
+        }
+      }
+      file.close();
+      file_index++;
+      if (file_index == 0xFFFF) break;
+    }
+    else
+    {
+      break;
+    }
   }
-  file.getFilename(track);  
-  file.close();
+  Serial.print("Tracks found: ");
+  Serial.println(tracks_found);
 }
 
-
-void getPrevFile()
+void randomizeTracks()
 {
-  // Get the previous file (which may be playable or not)
-
-  // Getting the previous file is tricky, since you can
-  // only go forward when reading directories.
-  //
-  // To handle this, we save the previous track name in getNextTrack,
-  // and loop until we find it here.
-
-  do
+  int target_position;
+  uint16_t tmp;
+  for (int i = 0; i < tracks_found; i++)
   {
-    getNextFile();
+    target_position = int(random(0, tracks_found));
+    if (debugging)
+    {
+      Serial.print(F("Random position generated: "));
+      Serial.println(target_position);
+    }
+    tmp = track_files[target_position];
+    track_files[target_position] = track_files[i];
+    track_files[i] = tmp;
   }
-  while(strcasecmp(track,prev) != 0);
-
 }
 
+void startOver()
+{
+  sd.chdir("/",true); // Index beginning of root directory
+  current_track = 0;
+}
+
+void goToTrack(int target_track)
+{
+  uint16_t target_file = track_files[target_track];
+  uint16_t current_file = track_files[current_track];
+  if (target_file > current_file)
+  {
+    for (uint16_t i = current_file; i < target_file; i++)
+    {
+      file.close();
+      file.openNext(sd.vwd(), O_READ);
+    }
+  }
+  else
+  {
+    startOver();
+    for (uint16_t i = 0; i <= target_file; i++)
+    {
+      file.close();
+      file.openNext(sd.vwd(), O_READ);
+    }
+  }
+  file.getFilename(track);
+  current_track = target_track;
+  if (debugging)
+  {
+    Serial.print(F("Moved to track "));
+    Serial.print(current_track);
+    Serial.print(F(", file "));
+    Serial.print(target_file);
+    Serial.print(F(": "));
+    Serial.println(track);
+  }
+}
 
 void startPlaying()
 {
@@ -823,6 +877,15 @@ void unmute()
 {
   MP3player.setVolume(volume,volume);
 }
+
+
+
+
+
+
+
+
+
 
 
 
