@@ -238,12 +238,16 @@ void setup()
   // Initialize the SD card:
 
   if (debugging) Serial.println(F("Initializing SD card... "));
-
-  result = sd.begin(SD_SEL, SPI_FULL_SPEED);
+  
+  for (int i = 0; i < 10; i++)
+  {
+    result = sd.begin(SD_SEL, SPI_FULL_SPEED);
+    if (result == 1) break;
+  }
 
   if (result != 1)
   {
-    if (debugging) Serial.println(F("Failed to read SD card. Halting"));
+    if (debugging) Serial.println(F("Failed to open SD card. Halting"));
     errorBlink(1,RED);
   }
   else 
